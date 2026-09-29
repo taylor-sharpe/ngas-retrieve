@@ -17,6 +17,7 @@ def quote_sftp(value: str) -> str:
 
 def run_sftp_batch(server: str, commands: list[str], auth_method: str) -> str:
     """Runs read-only SFTP commands using the selected authentication method."""
+    # Keep authentication settings explicit so password mode cannot fall back to GSSAPI.
     if auth_method == "id_card":
         auth_options = [
             "-o", "GSSAPIAuthentication=yes",
@@ -250,6 +251,7 @@ def download_files(
     for item in files:
         remote_file_path = f"./{item['name']}"
         local_file_path = local_path / item["name"]
+        # Download beside the final file, then replace it only after the transfer succeeds.
         with tempfile.NamedTemporaryFile(
             prefix=".ngas-download-", suffix=".part", dir=local_path, delete=False
         ) as temporary_file:
@@ -360,6 +362,7 @@ def main():
             return
         instrument_number = instrument_number or None
 
+    # Apply both filters to filenames; directories are never selected for download.
     matching_files = [
         item for item in files
         if not item["is_dir"]
