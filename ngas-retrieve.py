@@ -15,21 +15,41 @@ def quote_sftp(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def validate_read_only_commands(commands: list[str]):
+    """Reject every SFTP batch operation except navigation, listing, and get."""
+    allowed_operations = {"cd", "get"}
+    for command in commands:
+        if any(character in command for character in "\r\n"):
+            raise ValueError("SFTP commands cannot contain line breaks.")
+
+        operation = command.split(maxsplit=1)[0] if command else ""
+        if operation == "ls" and command == "ls -l":
+            continue
+        if operation not in allowed_operations:
+            raise ValueError(f"Blocked non-read-only SFTP command: {operation!r}")
+
+
 def run_sftp_batch(server: str, commands: list[str], auth_method: str) -> str:
     """Runs read-only SFTP commands using the selected authentication method."""
+    if not server or server.startswith("-"):
+        raise ValueError("The SFTP server must be a non-empty destination, not an option.")
+    validate_read_only_commands(commands)
+
     # Keep authentication settings explicit so password mode cannot fall back to GSSAPI.
     if auth_method == "id_card":
         auth_options = [
             "-o", "GSSAPIAuthentication=yes",
             "-o", "GSSAPIDelegateCredentials=no",
         ]
-    else:
+    elif auth_method == "password":
         auth_options = [
             "-o", "GSSAPIAuthentication=no",
             "-o", "PasswordAuthentication=yes",
             "-o", "KbdInteractiveAuthentication=yes",
             "-o", "PreferredAuthentications=password,keyboard-interactive",
         ]
+    else:
+        raise ValueError(f"Unknown authentication method: {auth_method!r}")
 
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", suffix=".sftp", delete=False
