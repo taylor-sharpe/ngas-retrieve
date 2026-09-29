@@ -18,7 +18,7 @@ From this folder, start PowerShell or another terminal and run:
 python .\ngas-retrieve.py
 ```
 
-The program prompts for the server, login method, and remote directory. Press Enter to use each configured default. The defaults can be changed in the configuration section near the start of `main()`.
+The program first prompts for a username (default `sharpe`), then for the login method and remote directory. The username is combined with the host from the configured default server (`nimbus2.cmdl.noaa.gov`). Press Enter to use the default username; change `DEFAULT_SERVER` in `main()` to change the configured username or host.
 
 ## Find Files
 

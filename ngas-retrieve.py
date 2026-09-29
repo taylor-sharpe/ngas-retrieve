@@ -300,6 +300,7 @@ def download_files(
 def main():
     # --- CONFIGURATION DEFAULT DEFAULTS ---
     DEFAULT_SERVER = "sharpe@nimbus2.cmdl.noaa.gov"
+    DEFAULT_USERNAME, SERVER_HOST = DEFAULT_SERVER.split("@", maxsplit=1)
     DEFAULT_REMOTE_DIR = "/isftp/sftp/data/ttea/ngas/incoming/ngas"
     DEFAULT_LOCAL_DIR = "~/Downloads"
     # -------------------------------------
@@ -308,9 +309,10 @@ def main():
     print(" 🛠️  Interactive Remote File Downloader")
     print("==========================================")
 
-    # Prompt for server connection details
-    server_input = input(f"Enter server [{DEFAULT_SERVER}]: ").strip()
-    server = server_input if server_input else DEFAULT_SERVER
+    # Prompt for the username used with the configured server host
+    username_input = input(f"Enter username, default:[{DEFAULT_USERNAME}]: ").strip()
+    username = username_input if username_input else DEFAULT_USERNAME
+    server = f"{username}@{SERVER_HOST}"
 
     print("\nChoose login method:")
     print("1. ID card (GSSAPI)")
@@ -323,7 +325,7 @@ def main():
 
     # Get remote path
     print("\nTip: You can get this path on your server by running 'pwd'.")
-    remote_dir_input = input(f"Enter remote directory path [{DEFAULT_REMOTE_DIR}]: ").strip()
+    remote_dir_input = input(f"Enter remote directory path, default:[{DEFAULT_REMOTE_DIR}]: ").strip()
     remote_dir = remote_dir_input if remote_dir_input else DEFAULT_REMOTE_DIR
 
     print("\n🔍 Fetching file list from server...")
