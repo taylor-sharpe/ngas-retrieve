@@ -20,6 +20,16 @@ python .\ngas-retrieve.py
 
 The program first prompts for a username (default `sharpe`), then for the login method and remote directory. The username is combined with the host from the configured default server (`nimbus2.cmdl.noaa.gov`). Press Enter to use the default username; change `DEFAULT_SERVER` in `main()` to change the configured username or host.
 
+## Google Drive Variant
+
+`ngas-retrieve-gdrive.py` contains the same download workflow followed by a placeholder Google Drive upload step:
+
+```powershell
+python .\ngas-retrieve-gdrive.py
+```
+
+Before using it, fill in the approved Google Drive API implementation in `upload_files_to_google_drive()` and configure `GOOGLE_DRIVE_FOLDER_ID` and `GOOGLE_DRIVE_CREDENTIALS_PATH`. The script downloads files locally first; it does not attempt an upload until the local download succeeds. Until the placeholder is replaced, it reports that the download completed and the upload is pending.
+
 ## Find Files
 
 Enter one date or an inclusive start and end date. Supported date formats are `YYYY-MM-DD`, `YYYY_MM_DD`, and `YYYYMMDD`.

@@ -8,6 +8,16 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
+def handle_navigation_command(value: str) -> str | None:
+    """Returns 'exit', 'back', or None if value isn't a navigation command."""
+    normalized = value.strip().lower()
+    if normalized in ("exit", "quit"):
+        return "exit"
+    if normalized == "back":
+        return "back"
+    return None
+
+
 def quote_sftp(value: str) -> str:
     """Quote a path as one argument in an SFTP batch command."""
     if "\n" in value or "\r" in value:
@@ -165,8 +175,14 @@ def parse_requested_date(value: str):
 
 def parse_date_filter(value: str):
     tokens = value.split()
-    if not 1 <= len(tokens) <= 3:
-        raise ValueError("Enter one date, or a start date and end date, with an optional instrument number.")
+    if len(tokens) > 3:
+        raise ValueError("Enter a date, a date range, and/or a four-digit instrument number.")
+
+    # No tokens at all means "everything"; a single 4-digit token means "instrument only".
+    if not tokens:
+        return None, None, None, None, None, False
+    if len(tokens) == 1 and re.fullmatch(r"\d{4}", tokens[0]):
+        return None, None, tokens[0], None, None, False
 
     start_date = parse_requested_date(tokens[0])
     end_date = start_date
@@ -255,6 +271,29 @@ def filename_matches_date_range(
     )
 
 
+def filename_matches_filter(
+    filename: str, start_date, end_date, instrument_number: str | None
+) -> bool:
+    """Applies an optional date range and/or instrument filter; no filter matches everything."""
+    if start_date is None:
+        return instrument_number is None or filename_matches_instrument(filename, instrument_number)
+    return filename_matches_date_range(filename, start_date, end_date, instrument_number)
+
+
+def describe_filter(start_date, end_date, instrument_number, is_range) -> str:
+    if start_date is None and instrument_number is None:
+        return "all files"
+    parts = []
+    if start_date is not None:
+        description = start_date.isoformat()
+        if is_range:
+            description += f" through {end_date.isoformat()}"
+        parts.append(description)
+    if instrument_number:
+        parts.append(f"instrument {instrument_number}")
+    return " and ".join(parts)
+
+
 def download_files(
     server: str,
     remote_dir: str,
@@ -330,95 +369,148 @@ def main():
     print("==========================================")
     print(" 🛠️  Interactive Remote File Downloader")
     print("==========================================")
+    print("(Type 'back' to redo the previous step, or 'exit' to quit anytime.)")
 
-    # Prompt for the username used with the configured server host
-    username_input = input(f"Enter username, default:[{DEFAULT_USERNAME}]: ").strip()
-    username = username_input if username_input else DEFAULT_USERNAME
-    server = f"{username}@{SERVER_HOST}"
+    STEPS = ["username", "auth", "remote_dir", "commands"]
+    step_index = 0
 
-    print("\nChoose login method:")
-    print("1. ID card (GSSAPI)")
-    print("2. Password")
-    auth_choice = input("Select method [1/2, default 1]: ").strip() or "1"
-    if auth_choice not in ("1", "2"):
-        print("❌ Invalid login method.")
-        return
-    auth_method = "id_card" if auth_choice == "1" else "password"
+    username = server = auth_method = remote_dir = files = None
 
-    # Get remote path
-    print("\nTip: You can get this path on your server by running 'pwd'.")
-    remote_dir_input = input(f"Enter remote directory path, default:[{DEFAULT_REMOTE_DIR}]: ").strip()
-    remote_dir = remote_dir_input if remote_dir_input else DEFAULT_REMOTE_DIR
+    while True:
+        step = STEPS[step_index]
 
-    print("\n🔍 Fetching file list from server...")
-    files = list_remote_files(server, remote_dir, auth_method)
+        if step == "username":
+            # Prompt for the username used with the configured server host
+            raw_input_value = input(f"\nEnter username, default:[{DEFAULT_USERNAME}]: ").strip()
+            nav = handle_navigation_command(raw_input_value)
+            if nav == "exit":
+                print("\n👋 Exiting.")
+                return
+            if nav == "back":
+                print("⚠️  Already at the first step.")
+                continue
+            username = raw_input_value if raw_input_value else DEFAULT_USERNAME
+            server = f"{username}@{SERVER_HOST}"
+            step_index += 1
+            continue
 
-    if not files:
-        print("📂 Directory is empty or path doesn't exist.")
-        return
+        if step == "auth":
+            print("\nChoose login method:")
+            print("1. ID card (GSSAPI)")
+            print("2. Password")
+            raw_input_value = input("Select method [1/2, default 1]: ").strip()
+            nav = handle_navigation_command(raw_input_value)
+            if nav == "exit":
+                print("\n👋 Exiting.")
+                return
+            if nav == "back":
+                step_index -= 1
+                continue
+            auth_choice = raw_input_value or "1"
+            if auth_choice not in ("1", "2"):
+                print("❌ Invalid login method.")
+                continue
+            auth_method = "id_card" if auth_choice == "1" else "password"
+            step_index += 1
+            continue
 
-    date_filter_input = input(
-        "\nEnter a date or date range, optionally with a 4-digit instrument\n"
-        "Example: 2026-09-25 2026-09-29 5686\n"
-        "Date formats: YYYY-MM-DD, YYYY_MM_DD, or YYYYMMDD: "
-    ).strip()
-    try:
-        (
-            start_date,
-            end_date,
-            instrument_number,
-            start_input,
-            end_input,
-            is_range,
-        ) = parse_date_filter(date_filter_input)
-    except ValueError as error:
-        print(f"❌ {error}")
-        return
+        if step == "remote_dir":
+            print("\nTip: You can get this path on your server by running 'pwd'.")
+            raw_input_value = input(f"Enter remote directory path, default:[{DEFAULT_REMOTE_DIR}]: ").strip()
+            nav = handle_navigation_command(raw_input_value)
+            if nav == "exit":
+                print("\n👋 Exiting.")
+                return
+            if nav == "back":
+                step_index -= 1
+                continue
+            remote_dir = raw_input_value if raw_input_value else DEFAULT_REMOTE_DIR
 
-    if instrument_number is None:
-        instrument_number = input("Instrument number (optional, 4 digits): ").strip()
-        if instrument_number and not re.fullmatch(r"\d{4}", instrument_number):
-            print("❌ Instrument number must contain exactly four digits.")
-            return
-        instrument_number = instrument_number or None
+            print("\n🔍 Fetching file list from server...")
+            files = list_remote_files(server, remote_dir, auth_method)
+            if not files:
+                print("📂 Directory is empty or path doesn't exist.")
+                continue
+            step_index += 1
+            continue
 
-    # Apply both filters to filenames; directories are never selected for download.
-    matching_files = [
-        item for item in files
-        if not item["is_dir"]
-        and filename_matches_date_range(
-            item["name"], start_date, end_date, instrument_number
-        )
-    ]
-    if not matching_files:
-        search_description = start_date.isoformat()
-        if is_range:
-            search_description += f" through {end_date.isoformat()}"
-        if instrument_number:
-            search_description += f" and instrument {instrument_number}"
-        print(f"📂 No files found for {search_description}.")
-        return
+        if step == "commands":
+            print(
+                "\nCommands:\n"
+                "  list [date] [end date] [instrument]      e.g. list 5785\n"
+                "  download [date] [end date] [instrument]  e.g. download 2026-09-10 2026-09-25 5785\n"
+                "  back    (choose a different folder)\n"
+                "  exit\n"
+                "Date formats: YYYY-MM-DD, YYYY_MM_DD, or YYYYMMDD."
+            )
 
-    search_description = start_date.isoformat()
-    if is_range:
-        search_description += f" through {end_date.isoformat()}"
-    if instrument_number:
-        search_description += f" and instrument {instrument_number}"
-    print(f"\nFiles matching {search_description}:")
-    for item in matching_files:
-        print(f"  {item['name']} ({item['size']})")
+            command_input = input("\n> ").strip()
+            nav = handle_navigation_command(command_input)
+            if nav == "exit":
+                print("\n👋 Exiting.")
+                return
+            if nav == "back":
+                step_index -= 1
+                continue
+            if not command_input:
+                continue
 
-    # Destination prompt
-    dest_input = input(f"Local download folder [{DEFAULT_LOCAL_DIR}]: ").strip()
-    local_dest = dest_input if dest_input else DEFAULT_LOCAL_DIR
+            command, *filter_tokens = command_input.split()
+            command = command.lower()
 
-    folder_name = start_input
-    if is_range:
-        folder_name += f"_{end_input}"
-    if instrument_number:
-        folder_name += f"_{instrument_number}"
-    date_dest = Path(local_dest).expanduser() / folder_name
-    download_files(server, remote_dir, matching_files, str(date_dest), auth_method)
+            if command not in ("list", "download"):
+                print(f"⚠️  Unknown command {command!r}. Use 'list' or 'download'.")
+                continue
+
+            try:
+                (
+                    start_date,
+                    end_date,
+                    instrument_number,
+                    start_input,
+                    end_input,
+                    is_range,
+                ) = parse_date_filter(" ".join(filter_tokens))
+            except ValueError as error:
+                print(f"❌ {error}")
+                continue
+
+            # Apply the filter to filenames; directories are never selected for download.
+            matching_files = [
+                item for item in files
+                if not item["is_dir"]
+                and filename_matches_filter(
+                    item["name"], start_date, end_date, instrument_number
+                )
+            ]
+            search_description = describe_filter(start_date, end_date, instrument_number, is_range)
+            if not matching_files:
+                print(f"📂 No files found for {search_description}.")
+                continue
+
+            if command == "list":
+                print(f"\nFiles matching {search_description}:")
+                for item in matching_files:
+                    print(f"  {item['name']} ({item['size']})")
+                continue
+
+            # download
+            raw_input_value = input(f"Local download folder [{DEFAULT_LOCAL_DIR}]: ").strip()
+            nav = handle_navigation_command(raw_input_value)
+            if nav == "exit":
+                print("\n👋 Exiting.")
+                return
+            if nav == "back":
+                continue
+            local_dest = raw_input_value if raw_input_value else DEFAULT_LOCAL_DIR
+
+            folder_name = start_input or instrument_number or "all"
+            if is_range:
+                folder_name += f"_{end_input}"
+            if instrument_number and start_input:
+                folder_name += f"_{instrument_number}"
+            date_dest = Path(local_dest).expanduser() / folder_name
+            download_files(server, remote_dir, matching_files, str(date_dest), auth_method)
 
 
 if __name__ == "__main__":
