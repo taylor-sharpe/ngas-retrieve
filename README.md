@@ -32,7 +32,7 @@ Before using it, fill in the approved Google Drive API implementation in `upload
 
 ## Find Files
 
-Enter one date or an inclusive start and end date. Supported date formats are `YYYY-MM-DD`, `YYYY_MM_DD`, and `YYYYMMDD`.
+Enter one date or an inclusive start and end date. Supported date formats are `YYYY-MM-DD`, `YYYY_MM_DD`, and `YYYYMMDD`. Use `latest` by itself to select files for the newest date available, or as the end of a range to select all files on or after the start date.
 
 Examples:
 
@@ -40,9 +40,12 @@ Examples:
 2026-09-29
 2026-09-29 5696
 2026-09-25 2026-09-29 5686
+latest
+2026-10-10 latest
+2026-10-10 latest 5686
 ```
 
-The instrument number is optional and must be four digits. You can include it on the date line as shown, or enter it at the follow-up prompt. Without an instrument number, all files matching the date or date range are selected. Date ranges include both endpoints.
+The instrument number is optional and must be four digits. You can include it on the date line as shown, or enter it at the follow-up prompt. Without an instrument number, all files matching the date or date range are selected. Date ranges include both endpoints; `latest` as the end date means there is no upper bound. A standalone `latest` selects file(s) matching the newest date found, optionally limited to the instrument number.
 
 ## Downloads
 

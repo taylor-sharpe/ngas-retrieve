@@ -184,28 +184,38 @@ def parse_date_filter(value: str):
     if len(tokens) == 1 and re.fullmatch(r"\d{4}", tokens[0]):
         return None, None, tokens[0], None, None, False
 
+    if tokens[0].lower() == "latest":
+        instrument_number = tokens[1] if len(tokens) == 2 else None
+        if instrument_number and not re.fullmatch(r"\d{4}", instrument_number):
+            raise ValueError("Instrument number must contain exactly four digits.")
+        return None, None, instrument_number, "latest", None, False
+
     start_date = parse_requested_date(tokens[0])
     end_date = start_date
     instrument_number = None
     is_range = False
 
     if len(tokens) == 2:
-        try:
-            end_date = parse_requested_date(tokens[1])
+        if tokens[1].lower() == "latest":
+            end_date = None
             is_range = True
-        except ValueError:
-            if re.fullmatch(r"\d{4}", tokens[1]):
-                instrument_number = tokens[1]
-            else:
-                raise ValueError("The second value must be an end date or a four-digit instrument number.")
+        else:
+            try:
+                end_date = parse_requested_date(tokens[1])
+                is_range = True
+            except ValueError:
+                if re.fullmatch(r"\d{4}", tokens[1]):
+                    instrument_number = tokens[1]
+                else:
+                    raise ValueError("The second value must be an end date, 'latest', or a four-digit instrument number.")
     elif len(tokens) == 3:
-        end_date = parse_requested_date(tokens[1])
+        end_date = None if tokens[1].lower() == "latest" else parse_requested_date(tokens[1])
         instrument_number = tokens[2]
         is_range = True
 
     if instrument_number and not re.fullmatch(r"\d{4}", instrument_number):
         raise ValueError("Instrument number must contain exactly four digits.")
-    if end_date < start_date:
+    if end_date is not None and end_date < start_date:
         raise ValueError("The end date must be the same as or later than the start date.")
 
     end_input = tokens[1] if is_range else tokens[0]
@@ -263,7 +273,7 @@ def filename_matches_date_range(
         not instrument_number or filename_matches_instrument(filename, instrument_number)
     )
     return any(
-        start_date <= matched_date <= end_date
+        start_date <= matched_date and (end_date is None or matched_date <= end_date)
         and (standalone_instrument_match or has_concatenated_instrument)
         for matched_date, has_concatenated_instrument in filename_dates(
             filename, instrument_number
@@ -280,14 +290,47 @@ def filename_matches_filter(
     return filename_matches_date_range(filename, start_date, end_date, instrument_number)
 
 
-def describe_filter(start_date, end_date, instrument_number, is_range) -> str:
+def select_matching_files(
+    files: list[dict], start_date, end_date, instrument_number: str | None, latest: bool = False
+) -> list[dict]:
+    candidates = [item for item in files if not item["is_dir"]]
+    if latest:
+        dated_candidates = [
+            (matched_date, item)
+            for item in candidates
+            for matched_date, has_concatenated_instrument in filename_dates(
+                item["name"], instrument_number
+            )
+            if instrument_number is None
+            or filename_matches_instrument(item["name"], instrument_number)
+            or has_concatenated_instrument
+        ]
+        if not dated_candidates:
+            return []
+        latest_date = max(matched_date for matched_date, _ in dated_candidates)
+        latest_file = max(
+            (item for matched_date, item in dated_candidates if matched_date == latest_date),
+            key=lambda item: item["name"],
+        )
+        return [latest_file]
+
+    return [
+        item
+        for item in candidates
+        if filename_matches_filter(item["name"], start_date, end_date, instrument_number)
+    ]
+
+
+def describe_filter(start_date, end_date, instrument_number, is_range, latest=False) -> str:
     if start_date is None and instrument_number is None:
-        return "all files"
+        return "latest" if latest else "all files"
     parts = []
-    if start_date is not None:
+    if latest:
+        parts.append("latest")
+    elif start_date is not None:
         description = start_date.isoformat()
         if is_range:
-            description += f" through {end_date.isoformat()}"
+            description += f" through {end_date.isoformat()}" if end_date else " onward"
         parts.append(description)
     if instrument_number:
         parts.append(f"instrument {instrument_number}")
@@ -437,11 +480,11 @@ def main():
         if step == "commands":
             print(
                 "\nCommands:\n"
-                "  list [date] [end date] [instrument]      e.g. list 5785\n"
-                "  download [date] [end date] [instrument]  e.g. download 2026-09-10 2026-09-25 5785\n"
+                "  list [date|latest] [end date|latest] [instrument]      e.g. list 5785\n"
+                "  download [date|latest] [end date|latest] [instrument]  e.g. download 2026-09-10 latest 5785\n"
                 "  back    (choose a different folder)\n"
                 "  exit\n"
-                "Date formats: YYYY-MM-DD, YYYY_MM_DD, or YYYYMMDD."
+                "Date formats: YYYY-MM-DD, YYYY_MM_DD, or YYYYMMDD. 'latest' selects the newest available date."
             )
 
             command_input = input("\n> ").strip()
@@ -476,14 +519,13 @@ def main():
                 continue
 
             # Apply the filter to filenames; directories are never selected for download.
-            matching_files = [
-                item for item in files
-                if not item["is_dir"]
-                and filename_matches_filter(
-                    item["name"], start_date, end_date, instrument_number
-                )
-            ]
-            search_description = describe_filter(start_date, end_date, instrument_number, is_range)
+            latest = start_input == "latest"
+            matching_files = select_matching_files(
+                files, start_date, end_date, instrument_number, latest
+            )
+            search_description = describe_filter(
+                start_date, end_date, instrument_number, is_range, latest
+            )
             if not matching_files:
                 print(f"📂 No files found for {search_description}.")
                 continue

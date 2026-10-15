@@ -81,8 +81,9 @@ def main():
 
     date_filter_input = input(
         "\nEnter a date or date range, optionally with a 4-digit instrument\n"
-        "Example: 2026-09-25 2026-09-29 5686\n"
-        "Date formats: YYYY-MM-DD, YYYY_MM_DD, or YYYYMMDD: "
+        "Examples: latest; 2026-10-10 latest 5686\n"
+        "Date formats: YYYY-MM-DD, YYYY_MM_DD, or YYYYMMDD.\n"
+        "Date filter: "
     ).strip()
     try:
         (
@@ -104,14 +105,9 @@ def main():
             return
         instrument_number = instrument_number or None
 
-    matching_files = [
-        item
-        for item in files
-        if not item["is_dir"]
-        and ngas.filename_matches_date_range(
-            item["name"], start_date, end_date, instrument_number
-        )
-    ]
+    matching_files = ngas.select_matching_files(
+        files, start_date, end_date, instrument_number, start_input == "latest"
+    )
     if not matching_files:
         print("No matching files found.")
         return
@@ -125,7 +121,7 @@ def main():
     ).strip()
     local_dest = local_dest_input if local_dest_input else default_local_dir
 
-    folder_name = start_input
+    folder_name = start_input or "all"
     if is_range:
         folder_name += f"_{end_input}"
     if instrument_number:
