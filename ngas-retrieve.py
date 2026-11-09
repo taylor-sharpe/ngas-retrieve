@@ -249,7 +249,8 @@ def filename_matches_date(filename: str, requested_date) -> bool:
 
 
 def filename_matches_instrument(filename: str, instrument_number: str) -> bool:
-    instrument_pattern = rf"(?<!\d){re.escape(instrument_number)}(?!\d)"
+    # The instrument ID is the 4-digit number after a dash, e.g. 5785-CFKBDS2699_... -> 2699
+    instrument_pattern = rf"-[A-Za-z]*(?<!\d){re.escape(instrument_number)}(?!\d)"
     return re.search(instrument_pattern, filename) is not None
 
 
@@ -405,7 +406,10 @@ def main():
     # --- CONFIGURATION DEFAULT DEFAULTS ---
     DEFAULT_SERVER = "sharpe@nimbus2.cmdl.noaa.gov"
     DEFAULT_USERNAME, SERVER_HOST = DEFAULT_SERVER.split("@", maxsplit=1)
-    DEFAULT_REMOTE_DIR = "/isftp/sftp/data/ttea/ngas/incoming/ngas"
+    DEFAULT_REMOTE_DIRS = [
+        "/isftp/sftp/data/ttea/ngas/incoming/ngas",
+        "/isftp/sftp/data/ttea/ngas/incoming/ngas/configs",
+    ]
     DEFAULT_LOCAL_DIR = "~/Downloads"
     # -------------------------------------
 
@@ -458,8 +462,11 @@ def main():
             continue
 
         if step == "remote_dir":
-            print("\nTip: You can get this path on your server by running 'pwd'.")
-            raw_input_value = input(f"Enter remote directory path, default:[{DEFAULT_REMOTE_DIR}]: ").strip()
+            print("\nChoose remote directory:")
+            for i, path in enumerate(DEFAULT_REMOTE_DIRS, start=1):
+                print(f"{i}. {path}")
+            print(f"{len(DEFAULT_REMOTE_DIRS) + 1}. Enter a custom path")
+            raw_input_value = input(f"Select directory [1-{len(DEFAULT_REMOTE_DIRS) + 1}, default 1]: ").strip()
             nav = handle_navigation_command(raw_input_value)
             if nav == "exit":
                 print("\n👋 Exiting.")
@@ -467,7 +474,25 @@ def main():
             if nav == "back":
                 step_index -= 1
                 continue
-            remote_dir = raw_input_value if raw_input_value else DEFAULT_REMOTE_DIR
+            dir_choice = raw_input_value or "1"
+            if dir_choice.isdigit() and 1 <= int(dir_choice) <= len(DEFAULT_REMOTE_DIRS):
+                remote_dir = DEFAULT_REMOTE_DIRS[int(dir_choice) - 1]
+            elif dir_choice == str(len(DEFAULT_REMOTE_DIRS) + 1):
+                print("\nTip: You can get this path on your server by running 'pwd'.")
+                custom_dir = input("Enter remote directory path: ").strip()
+                nav = handle_navigation_command(custom_dir)
+                if nav == "exit":
+                    print("\n👋 Exiting.")
+                    return
+                if nav == "back":
+                    continue
+                if not custom_dir:
+                    print("❌ No path entered.")
+                    continue
+                remote_dir = custom_dir
+            else:
+                print("❌ Invalid selection.")
+                continue
 
             print("\n🔍 Fetching file list from server...")
             files = list_remote_files(server, remote_dir, auth_method)
@@ -480,8 +505,8 @@ def main():
         if step == "commands":
             print(
                 "\nCommands:\n"
-                "  list [date|latest] [end date|latest] [instrument]      e.g. list 5785\n"
-                "  download [date|latest] [end date|latest] [instrument]  e.g. download 2026-09-10 latest 5785\n"
+                "  list [date|latest] [end date|latest] [instrument]      e.g. list 2699\n"
+                "  download [date|latest] [end date|latest] [instrument]  e.g. download 2026-09-10 latest 2699\n"
                 "  back    (choose a different folder)\n"
                 "  exit\n"
                 "Date formats: YYYY-MM-DD, YYYY_MM_DD, or YYYYMMDD. 'latest' selects the newest available date."
